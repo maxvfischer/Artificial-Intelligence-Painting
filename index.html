@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Painting</title>
+<style>
+
+.backG {
+	box-shadow:inset 0px 1px 3px 0px #9fb4f2;
+	background-color:#4196fe;
+	border-radius:5px;
+	border:1px solid #4e6096;
+	display:inline-block;
+
+	color:#ffffff;
+	font-family:Arial;
+	font-size:15px;
+	font-weight:bold;
+	padding:11px 23px;
+	text-decoration:none;
+	text-shadow:0px -1px 0px #283966;
+}
+
+
+button {
+	box-shadow:inset 0px 1px 3px 0px #9fb4f2;
+	background-color:#4196fe;
+	border-radius:5px;
+	border:1px solid #4e6096;
+	display:inline-block;
+	cursor:pointer;
+	color:#ffffff;
+	font-family:Arial;
+	font-size:15px;
+	font-weight:bold;
+	padding:11px 23px;
+	text-decoration:none;
+	text-shadow:0px -1px 0px #283966;
+}
+button:hover {
+	background-color:#476e9e;
+}
+button:active {
+	position:relative;
+	top:1px;
+}
+
+
+button:disabled,
+button[disabled]{
+  border: 1px solid #999999;
+  background-color: #cccccc;
+  color: #ffffff;
+  cursor:default;
+
+  font-family:Arial;
+  font-size:15px;
+  font-weight:bold;
+  padding:11px 23px;
+  text-decoration:none;
+  text-shadow:0px -1px 0px #283966;
+}
+
+::-webkit-file-upload-button {
+  box-shadow:inset 0px 1px 3px 0px #9fb4f2;
+	background-color:#4196fe;
+	border-radius:5px;
+	border:1px solid #4e6096;
+	display:inline-block;
+	cursor:pointer;
+	color:#ffffff;
+	font-family:Arial;
+	font-size:15px;
+	font-weight:bold;
+	padding:11px 23px;
+	text-decoration:none;
+	text-shadow:0px -1px 0px #283966;
+}
+
+</style>
+</head>
+<body>
+
+<a style="font-family:verdana">Choose image &nbsp;</a>
+<input type="file" id="fileinput" accept=".png, .jpg, .jpeg">
+<button id="startStopBtn" disabled onclick="startToPaint()">START</button>
+<a class="backG" style="font-family:verdana">Brush size
+  <input type="range" id="rangeInput" name="rangeInput" min="10" max="100" value="80" onchange="updateTextInput(this.value);">
+  <input type="text" id="textInput" value="80" size="2" readonly>
+</a>
+<canvas id="myCanvasRot" width="96" height="96" style="border:1px solid #000000;"></canvas>
+<button id="saveBtn"  onclick="saveImage();">Save Painting</button>
+<br><br>
+<div style="position: relative;">
+ <canvas id="myCanvas" width="800" height="800"
+   style="position: absolute; left: 0; top: 0; z-index: 0; border:1px solid #000000;"></canvas>
+</div>
+  <canvas id="myCanvasColor" width="10" height="10" style="border:1px solid #000000;">
+  </canvas>
+<br>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"> </script>
+<script>
+
+var startToPaintBool = false;
+
+function startToPaint() {
+  if (startToPaintBool == false) {
+
+    var anchor1 = document.getElementById('startStopBtn');
+    anchor1.innerHTML = "STOP";
+
+    startInterval();
+
+    startToPaintBool = true;
+  } else {
+    var anchor1 = document.getElementById('startStopBtn');
+    anchor1.innerHTML = "START";
+
+    stopInterval();
+
+    startToPaintBool = false;
+  }
+
+}
+
+var brushCount = 37;
+
+var imgArrayImg = new Array();
+
+for (var i = 0; i < brushCount; i += 1) {
+    imgArrayImg[i] = new Image();
+    imgArrayImg[i].src = "brush96bw/Project_" + (i + 10) + ".png";
+    imgArrayImg[i].onload = function() {
+    };
+
+}
+
+function saveImage() {
+
+  var c=document.getElementById("myCanvas");
+  var d=c.toDataURL('image/jpeg', 1.0);
+  var w=window.open('about:blank','image from canvas');
+  w.document.write("<img src='"+d+"' alt='from canvas'/>");
+}
+
+var sizeAdd = 100;
+
+function updateTextInput(val) {
+          document.getElementById('textInput').value = val;
+
+          sizeAdd = parseInt(val);
+
+}
+
+var modelMain;
+
+async function init(){
+    model = await tf.loadLayersModel('tfjs_target_dir_32x32/model.json');
+    model2 = await tf.loadLayersModel('tfjs_target_dir_size_32x32/model.json');
+}
+
+
+document.getElementById("myCanvasColor").style.display = "none";
+
+var runXLoop = 100;
+var runYLoop = 100;
+
+var move = 0;
+var c = document.getElementById("myCanvas");
+var ctx = c.getContext("2d");
+
+
+var canvas = document.getElementById("myCanvasRot");
+var context = canvas.getContext("2d");
+
+var canvasColor = document.getElementById("myCanvasColor");
+var contextColor = canvasColor.getContext("2d");
+
+var intervalID;
+
+
+var uploadImageX;
+var uploadImageY;
+
+var boarderSize = 96;
+
+var image = new Image();
+
+var randomMaxX = 0;
+var randomMaxY = 0;
+
+
+function myCallback(a, b){
+  var ranX = Math.floor(Math.random() * (randomMaxX - 1 * boarderSize / 2)) + boarderSize / 2;
+  var ranY = Math.floor(Math.random() * (randomMaxY - 1 * boarderSize / 2)) + boarderSize / 2;
+
+  tf.tidy(() => {
+     var imgData = contextColor.getImageData(ranX, ranY, 32, 32);
+     var imageFromFile = tf.browser.fromPixels(imgData).mean(2).toFloat().expandDims(0);
+     var imageFromFileDiv = imageFromFile.div(255);
+     var prediction = model.predict(imageFromFileDiv).as1D();
+     var randBrush = Math.floor(Math.random() * brushCount);//37);
+
+     var prediction2 = model2.predict(imageFromFileDiv).as1D();
+     var rotationAngle = prediction.argMax().dataSync()[0];
+
+     if (rotationAngle < 18){
+       rotationAngle = rotationAngle * 10;
+
+     } else if (rotationAngle < (18 * 2 - 1)) {
+       rotationAngle = (rotationAngle - 18) * 10;
+
+     } else {
+       rotationAngle = (rotationAngle - 18 * 2) * 10;
+
+    }
+
+
+  if (prediction2.argMax().dataSync()[0] == 1) {
+    rotationAngle = Math.floor(Math.random() * 40) - 110;//37);
+  }
+
+
+     drawRotatedID(360 - rotationAngle, prediction2.argMax().dataSync()[0], imgArrayImg[randBrush], ranX, ranY, 32, 32, a);
+
+  });
+}
+
+function startInterval() {
+    intervalID = window.setInterval(myCallback, 1, sizeAdd, 'Parameter 2');
+}
+
+
+function stopInterval() {
+  clearInterval(intervalID);
+}
+
+
+let fileInput = document.getElementById('fileinput');
+fileInput.addEventListener('change', function(ev) {
+   if(ev.target.files) {
+      let file = ev.target.files[0];
+      var reader  = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onloadend = function (e) {
+          image = new Image();
+          image.src = e.target.result;
+          image.onload = function(ev) {
+             var canvas = document.getElementById('myCanvas');
+
+             uploadImageX = image.width + 2 * boarderSize;
+             uploadImageY = image.height + 2 * boarderSize;
+
+
+
+             canvas.width = uploadImageX;
+             canvas.height = uploadImageY;
+             var ctx = canvas.getContext('2d');
+
+             ctx.fillStyle = "white";
+             ctx.fillRect(0, 0, uploadImageX, uploadImageY);
+
+             ctx.drawImage(image,boarderSize,boarderSize);
+
+
+
+             imgArray = new Uint8ClampedArray(uploadImageX * uploadImageY * 4);
+
+             for (var i = 0, n = (uploadImageX * uploadImageY * 4); i < n; i += 4) {
+                 imgArray[i] = 255; //r;
+                 imgArray[i + 1] = 255; //g;
+                 imgArray[i + 2] = 255; //b;
+                 imgArray[i + 3] = 0; //a;
+             };
+
+
+             randomMaxX = image.width + boarderSize;
+             randomMaxY = image.height + boarderSize;
+
+             var canvasColor1 = document.getElementById('myCanvasColor');
+             canvasColor1.width = uploadImageX;
+             canvasColor1.height = uploadImageY;
+             var ctxColor1 = canvasColor1.getContext('2d');
+             ctxColor1.fillStyle = "white";
+             ctxColor1.fillRect(0, 0, uploadImageX, uploadImageY);
+             ctxColor1.drawImage(image,boarderSize,boarderSize);
+
+             stopInterval();
+
+             document.getElementById("startStopBtn").disabled = false;
+
+             var anchor1 = document.getElementById('startStopBtn');
+             anchor1.innerHTML = "START";
+
+             startToPaintBool = false;
+         }
+      }
+   }
+});
+
+var input = document.getElementsByTagName('input')[0];
+
+input.onclick = function () {
+    this.value = null;
+};
+
+
+function sizePred(size_pred){
+  var size_case = 100;
+
+  if (size_pred == 10) size_case = (100 * 4)/ 32;
+  if (size_pred == 9) size_case = (100 * 4)/ 32;
+  if (size_pred == 8) size_case = (100 * 8)/ 32;
+  if (size_pred == 7) size_case = (100 * 4)/ 32;
+  if (size_pred == 6) size_case = (100 * 16)/ 32;
+  if (size_pred == 5) size_case = (100 * 8)/ 32;
+  if (size_pred == 4) size_case = (100 * 24)/ 32;
+  if (size_pred == 3) size_case = (100 * 16)/ 32;
+  if (size_pred == 2) size_case = (100 * 8)/ 32;
+  if (size_pred == 1) size_case = (100 * 32)/ 32;
+  if (size_pred == 0) size_case = (100 * 4)/ 32;
+
+  if (size_case < 60) {
+    size_case = 60;
+  }
+
+  return size_case;
+}
+
+
+
+
+
+  function drawRotatedID(degrees, size_pred, drawing, x, y, predictionx, predictiony, sizeAdd){
+
+      sizeAdd = parseInt(document.getElementById("rangeInput").value);
+
+      context.clearRect(0,0,96,96);
+      context.save();
+      context.translate(canvas.width/2,canvas.height/2);
+      context.rotate(degrees * Math.PI / 180);
+
+      var size_case = sizePred(size_pred);
+
+      scaleXY = parseFloat(size_case / 100) * sizeAdd / 100;
+
+      context.scale(scaleXY, scaleXY);
+      context.drawImage(drawing,-drawing.width/2,-drawing.height/2);
+
+      var uploadImg = context.getImageData(0, 0, canvas.width, canvas.height);
+      var pixUploadImg = uploadImg.data;
+
+      context.restore();
+
+      var uploadImgMain = ctx.getImageData(0, 0, uploadImageX, uploadImageY);
+      var pixUploadImgMain = uploadImgMain.data;
+
+      var getColorFromMainImage = contextColor.getImageData(x + 16, y + 16, 1, 1);
+      var getColorFromMainImageData = getColorFromMainImage.data;
+
+      var f = 0;
+
+
+      var hsl = rgbToHsl(getColorFromMainImageData[0],getColorFromMainImageData[1], getColorFromMainImageData[2]);
+
+      var hslWhite = hsl[2] - parseFloat(0.05);
+
+      if (hslWhite < 0) {
+        hslWhite = 0;
+      }
+
+      var rgb = hslToRgb(hsl[0], hsl[1], hslWhite);
+
+      var offsetX = predictionx;
+      var offsetY = predictiony;
+
+      for (var z = 0 + (y - offsetX); z < (y - offsetX + 96); z++) {
+
+          for (var i = 4 * z * uploadImageX + (x - offsetX) * 4; i < (4 * 96 + 4 * z * uploadImageX + (x - offsetX) * 4); i = i +  4) {
+
+
+              if (pixUploadImg[f + 3] > 0 && pixUploadImg[f + 3] < 255) {
+                  pixUploadImgMain[i]   = Math.round((pixUploadImgMain[i] * (255 - pixUploadImg[f + 3]) + rgb[0] * pixUploadImg[f + 3]) / 255);
+                  pixUploadImgMain[i + 1] = Math.round((pixUploadImgMain[i + 1] * (255 - pixUploadImg[f + 3]) + rgb[1] * pixUploadImg[f + 3]) / 255);
+                  pixUploadImgMain[i + 2]  = Math.round((pixUploadImgMain[i + 2] * (255 - pixUploadImg[f + 3]) + rgb[2] * pixUploadImg[f + 3]) / 255);
+                  pixUploadImgMain[i + 3] = Math.round(255 - ((255 - pixUploadImgMain[i + 3]) * (255 - pixUploadImg[f + 3]) / 255));
+
+              };
+
+              if (pixUploadImg[f + 3] == 255) {
+                  pixUploadImgMain[i] = rgb[0];
+                  pixUploadImgMain[i + 1] = rgb[1];
+                  pixUploadImgMain[i + 2] = rgb[2];
+                  pixUploadImgMain[i + 3] = pixUploadImg[f + 3];
+
+
+              };
+
+              f = f + 4;
+
+          }
+
+      }
+
+
+      var idata = context.createImageData(uploadImageX, uploadImageY);
+      idata.data.set(pixUploadImgMain);
+      ctx.putImageData(idata, 0, 0);
+  }
+
+
+function getRndInteger(min, max) {
+  return Math.floor(Math.random() * (max - min + 1) ) + min;
+}
+
+//code from https://stackoverflow.com/
+  function hslToRgb(h, s, l){
+      var r, g, b;
+
+      if(s == 0){
+          r = g = b = l; // achromatic
+      }else{
+          var hue2rgb = function hue2rgb(p, q, t){
+              if(t < 0) t += 1;
+              if(t > 1) t -= 1;
+              if(t < 1/6) return p + (q - p) * 6 * t;
+              if(t < 1/2) return q;
+              if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+              return p;
+          }
+
+          var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+          var p = 2 * l - q;
+          r = hue2rgb(p, q, h + 1/3);
+          g = hue2rgb(p, q, h);
+          b = hue2rgb(p, q, h - 1/3);
+      }
+
+      return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  }
+/////
+
+
+//code from https://stackoverflow.com/
+  function rgbToHsl(r, g, b){
+      r /= 255, g /= 255, b /= 255;
+      var max = Math.max(r, g, b), min = Math.min(r, g, b);
+      var h, s, l = (max + min) / 2;
+
+      if(max == min){
+          h = s = 0; // achromatic
+      }else{
+          var d = max - min;
+          s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+          switch(max){
+              case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+              case g: h = (b - r) / d + 2; break;
+              case b: h = (r - g) / d + 4; break;
+          }
+          h /= 6;
+      }
+
+      return [h, s, l];
+  }
+////
+
+
+init();
+
+</script>
+</body>
+</html>
